@@ -229,7 +229,8 @@ class AbletonMCP(ControlSurface):
             elif command_type in ["create_midi_track", "set_track_name", 
                                  "create_clip", "add_notes_to_clip", "set_clip_name", 
                                  "set_tempo", "fire_clip", "stop_clip",
-                                 "start_playback", "stop_playback", "load_browser_item"]:
+                                 "start_playback", "stop_playback", "load_browser_item",
+                                 "set_device_parameter"]:
                 # Use a thread-safe approach with a response queue
                 response_queue = queue.Queue()
                 
@@ -240,7 +241,14 @@ class AbletonMCP(ControlSurface):
                         if command_type == "create_midi_track":
                             index = params.get("index", -1)
                             result = self._create_midi_track(index)
+                        elif command_type == "set_device_parameter":
+                            track_index = params.get("track_index", 0)
+                            device_index = params.get("device_index", 0)
+                            parameter_index = params.get("parameter_index", 0)
+                            value = params.get("value", 0.0)
+                            result = self._set_device_parameter(track_index, device_index, parameter_index, value)
                         elif command_type == "set_track_name":
+
                             track_index = params.get("track_index", 0)
                             name = params.get("name", "")
                             result = self._set_track_name(track_index, name)
@@ -386,14 +394,26 @@ class AbletonMCP(ControlSurface):
                     "clip": clip_info
                 })
             
-            # Get devices
+            # Get devices with parameters
             devices = []
             for device_index, device in enumerate(track.devices):
+                device_params = []
+                for p_index, p in enumerate(device.parameters):
+                    device_params.append({
+                        "index": p_index,
+                        "name": p.name,
+                        "value": p.value,
+                        "min": p.min,
+                        "max": p.max,
+                        "is_quantized": p.is_quantized
+                    })
+
                 devices.append({
                     "index": device_index,
                     "name": device.name,
                     "class_name": device.class_name,
-                    "type": self._get_device_type(device)
+                    "type": self._get_device_type(device),
+                    "parameters": device_params
                 })
             
             result = {
@@ -412,6 +432,41 @@ class AbletonMCP(ControlSurface):
             return result
         except Exception as e:
             self.log_message("Error getting track info: " + str(e))
+            self.log_message(traceback.format_exc()) # verbose logging
+            raise
+
+    def _set_device_parameter(self, track_index, device_index, parameter_index, value):
+        """Set a device parameter value"""
+        try:
+            if track_index < 0 or track_index >= len(self._song.tracks):
+                raise IndexError("Track index out of range")
+            
+            track = self._song.tracks[track_index]
+            
+            if device_index < 0 or device_index >= len(track.devices):
+                raise IndexError("Device index out of range")
+                
+            device = track.devices[device_index]
+            
+            if parameter_index < 0 or parameter_index >= len(device.parameters):
+                 raise IndexError("Parameter index out of range")
+                 
+            parameter = device.parameters[parameter_index]
+            
+            # Clamp value
+            if value < parameter.min: value = parameter.min
+            if value > parameter.max: value = parameter.max
+            
+            parameter.value = value
+            
+            return {
+                "track": track.name,
+                "device": device.name,
+                "parameter": parameter.name,
+                "new_value": parameter.value
+            }
+        except Exception as e:
+            self.log_message("Error setting device parameter: " + str(e))
             raise
     
     def _create_midi_track(self, index):
