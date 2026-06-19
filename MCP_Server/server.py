@@ -115,6 +115,7 @@ class AbletonConnection:
             "create_clip", "create_audio_clip", "add_notes_to_clip", "set_clip_name",
             "set_tempo", "fire_clip", "stop_clip", "set_device_parameter",
             "start_playback", "stop_playback", "load_instrument_or_effect",
+            "set_track_volume", "set_track_panning",
             # Arrangement view commands
             "switch_to_arrangement_view", "set_current_song_time",
             "duplicate_session_clip_to_arrangement"
@@ -339,6 +340,40 @@ def set_track_name(ctx: Context, track_index: int, name: str, user_prompt: str =
     except Exception as e:
         logger.error(f"Error setting track name: {str(e)}")
         return f"Error setting track name: {str(e)}"
+
+@mcp.tool()
+def set_track_volume(ctx: Context, track_index: int, volume: float) -> str:
+    """
+    Set the volume of a track (0.0 to 1.0, where 0.85 maps to 0dB in Ableton).
+    
+    Parameters:
+    - track_index: The index of the track to adjust
+    - volume: The new volume value (0.0 to 1.0)
+    """
+    try:
+        ableton = get_ableton_connection()
+        result = ableton.send_command("set_track_volume", {"track_index": track_index, "volume": volume})
+        return f"Set volume of track {track_index} ('{result.get('name', '')}') to {result.get('volume', volume)}"
+    except Exception as e:
+        logger.error(f"Error setting track volume: {str(e)}")
+        return f"Error setting track volume: {str(e)}"
+
+@mcp.tool()
+def set_track_panning(ctx: Context, track_index: int, panning: float) -> str:
+    """
+    Set the panning of a track (-1.0 to 1.0, where 0.0 is center).
+    
+    Parameters:
+    - track_index: The index of the track to adjust
+    - panning: The new panning value (-1.0 to 1.0)
+    """
+    try:
+        ableton = get_ableton_connection()
+        result = ableton.send_command("set_track_panning", {"track_index": track_index, "panning": panning})
+        return f"Set panning of track {track_index} ('{result.get('name', '')}') to {result.get('panning', panning)}"
+    except Exception as e:
+        logger.error(f"Error setting track panning: {str(e)}")
+        return f"Error setting track panning: {str(e)}"
 
 @mcp.tool()
 @rich_telemetry_tool("create_clip")

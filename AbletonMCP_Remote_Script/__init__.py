@@ -226,12 +226,17 @@ class AbletonMCP(ControlSurface):
             elif command_type == "get_track_info":
                 track_index = params.get("track_index", 0)
                 response["result"] = self._get_track_info(track_index)
+            elif command_type == "get_drum_pad_info":
+                track_index = params.get("track_index", 0)
+                device_index = params.get("device_index", 0)
+                pad_index = params.get("pad_index", 36)
+                response["result"] = self._get_drum_pad_info(track_index, device_index, pad_index)
             # Commands that modify Live's state should be scheduled on the main thread
             elif command_type in ["create_midi_track", "set_track_name",
                                  "create_clip", "create_audio_clip", "add_notes_to_clip", "set_clip_name",
                                  "set_tempo", "fire_clip", "stop_clip",
                                  "start_playback", "stop_playback", "load_browser_item",
-                                 "set_device_parameter",
+                                 "set_device_parameter", "set_track_volume", "set_track_panning",
                                  # Arrangement view – must run on the main thread
                                  "switch_to_arrangement_view", "set_current_song_time",
                                  "duplicate_session_clip_to_arrangement"]:
@@ -252,10 +257,17 @@ class AbletonMCP(ControlSurface):
                             value = params.get("value", 0.0)
                             result = self._set_device_parameter(track_index, device_index, parameter_index, value)
                         elif command_type == "set_track_name":
-
                             track_index = params.get("track_index", 0)
                             name = params.get("name", "")
                             result = self._set_track_name(track_index, name)
+                        elif command_type == "set_track_volume":
+                            track_index = params.get("track_index", 0)
+                            volume = params.get("volume", 0.70)
+                            result = self._set_track_volume(track_index, volume)
+                        elif command_type == "set_track_panning":
+                            track_index = params.get("track_index", 0)
+                            panning = params.get("panning", 0.0)
+                            result = self._set_track_panning(track_index, panning)
                         elif command_type == "create_clip":
                             track_index = params.get("track_index", 0)
                             clip_index = params.get("clip_index", 0)
@@ -484,6 +496,68 @@ class AbletonMCP(ControlSurface):
             self.log_message(traceback.format_exc()) # verbose logging
             raise
 
+    def _get_drum_pad_info(self, track_index, device_index, pad_index):
+        """Get detailed information about a specific drum pad and its chain"""
+        try:
+            if track_index < 0 or track_index >= len(self._song.tracks):
+                raise IndexError("Track index out of range")
+            
+            track = self._song.tracks[track_index]
+            
+            if device_index < 0 or device_index >= len(track.devices):
+                raise IndexError("Device index out of range")
+                
+            device = track.devices[device_index]
+            
+            if not device.can_have_drum_pads:
+                raise ValueError("Device is not a drum rack")
+                
+            if pad_index < 0 or pad_index >= 128:
+                raise IndexError("Pad index must be between 0 and 127")
+                
+            pad = device.drum_pads[pad_index]
+            
+            chains = []
+            for chain_idx, chain in enumerate(pad.chains):
+                chain_devices = []
+                for dev_idx, dev in enumerate(chain.devices):
+                    dev_params = []
+                    for p_index, p in enumerate(dev.parameters):
+                        dev_params.append({
+                            "index": p_index,
+                            "name": p.name,
+                            "value": p.value,
+                            "min": p.min,
+                            "max": p.max,
+                            "is_quantized": p.is_quantized
+                        })
+                    
+                    chain_devices.append({
+                        "index": dev_idx,
+                        "name": dev.name,
+                        "class_name": dev.class_name,
+                        "parameters": dev_params
+                    })
+                
+                chains.append({
+                    "index": chain_idx,
+                    "name": chain.name,
+                    "devices": chain_devices
+                })
+                
+            result = {
+                "track_index": track_index,
+                "device_index": device_index,
+                "pad_index": pad_index,
+                "pad_name": pad.name,
+                "chains": chains
+            }
+            return result
+        except Exception as e:
+            self.log_message("Error getting drum pad info: " + str(e))
+            self.log_message(traceback.format_exc())
+            raise
+
     def _set_device_parameter(self, track_index, device_index, parameter_index, value):
         """Set a device parameter value"""
         try:
@@ -554,6 +628,46 @@ class AbletonMCP(ControlSurface):
             return result
         except Exception as e:
             self.log_message("Error setting track name: " + str(e))
+            raise
+
+    def _set_track_volume(self, track_index, volume):
+        """Set the volume of a track (0.0 to 1.0)"""
+        try:
+            if track_index < 0 or track_index >= len(self._song.tracks):
+                raise IndexError("Track index out of range")
+            
+            track = self._song.tracks[track_index]
+            clamped_volume = max(0.0, min(1.0, float(volume)))
+            track.mixer_device.volume.value = clamped_volume
+            
+            result = {
+                "track_index": track_index,
+                "name": track.name,
+                "volume": track.mixer_device.volume.value
+            }
+            return result
+        except Exception as e:
+            self.log_message("Error setting track volume: " + str(e))
+            raise
+
+    def _set_track_panning(self, track_index, panning):
+        """Set the panning of a track (-1.0 to 1.0)"""
+        try:
+            if track_index < 0 or track_index >= len(self._song.tracks):
+                raise IndexError("Track index out of range")
+            
+            track = self._song.tracks[track_index]
+            clamped_panning = max(-1.0, min(1.0, float(panning)))
+            track.mixer_device.panning.value = clamped_panning
+            
+            result = {
+                "track_index": track_index,
+                "name": track.name,
+                "panning": track.mixer_device.panning.value
+            }
+            return result
+        except Exception as e:
+            self.log_message("Error setting track panning: " + str(e))
             raise
     
     def _create_clip(self, track_index, clip_index, length):
